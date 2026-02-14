@@ -50,62 +50,64 @@ class WineyardsSecurityOverview extends HTMLElement {
 
         <style>
           .wy-sec-card{
-            background:#2c2f36;
-            border-radius:18px;
-            padding:18px 20px;
-            color:#fff;
-            font-family: var(--primary-font-family);
-            box-shadow:none;
+            background:#2c2f36 !important;
+            border-radius:18px !important;
+            padding:18px 20px !important;
+            color:#fff !important;
+            font-family: var(--primary-font-family) !important;
+            box-shadow:none !important;
           }
 
+          /* Erzwinge Spalten-Layout, egal was global drauf wirkt */
           .wy-sec-wrap{
-            display:block;
-            width:100%;
+            display:flex !important;
+            flex-direction:column !important;
+            width:100% !important;
+            min-width:0 !important;
           }
 
           .wy-sec-title{
-            width:100%;
-            font-size:20px;
-            font-weight:300;
-            margin-bottom:14px;
-            line-height:1.2;
+            display:block !important;
+            width:100% !important;
+            font-size:20px !important;
+            font-weight:300 !important;
+            margin:0 0 14px 0 !important;
+            line-height:1.2 !important;
           }
 
           .wy-sec-grid{
-            width:100%;
-            display:grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 0;
-            text-align:center;
+            display:grid !important;
+            grid-template-columns: repeat(3, 1fr) !important;
+            width:100% !important;
+            text-align:center !important;
           }
 
           .wy-sec-item{
-            display:flex;
-            flex-direction:column;
-            align-items:center;
-            justify-content:flex-start;
-            gap:6px;
-            min-width:0;
+            display:flex !important;
+            flex-direction:column !important;
+            align-items:center !important;
+            justify-content:flex-start !important;
+            gap:6px !important;
+            min-width:0 !important;
           }
 
           .wy-sec-item ha-icon{
-            width:28px;
-            height:28px;
-            opacity:0.95;
+            width:28px !important;
+            height:28px !important;
+            opacity:0.95 !important;
           }
 
           .wy-sec-label{
-            font-size:13px;
-            font-weight:300;
-            opacity:0.7;
-            line-height:1.1;
+            font-size:13px !important;
+            font-weight:300 !important;
+            opacity:0.7 !important;
+            line-height:1.1 !important;
           }
 
           .wy-sec-state{
-            font-size:16px;
-            font-weight:400;
-            line-height:1.1;
-            text-transform: none;
+            font-size:16px !important;
+            font-weight:400 !important;
+            line-height:1.1 !important;
           }
         </style>
       </ha-card>
