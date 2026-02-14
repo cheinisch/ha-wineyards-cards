@@ -1,7 +1,6 @@
 {
   "name": "Wineyards Cards",
-  "content_in_root": true,
   "render_readme": true,
-  "zip_release": true,
-  "filename": "my-card.js"
+  "content_in_root": false,
+  "filename": "wineyards-cards.js"
 }
