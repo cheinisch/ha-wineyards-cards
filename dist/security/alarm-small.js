@@ -24,8 +24,6 @@ class WineyardsAlarmSmall extends HTMLElement {
             <ha-icon icon="${icon}"></ha-icon>
             <span>${label}</span>
           </div>
-
-          <button class="btn info">Status</button>
           <button class="btn arm">Aktivieren</button>
           <button class="btn disarm">Deaktivieren</button>
         </div>
