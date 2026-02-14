@@ -8,7 +8,6 @@ class WineyardsSecurityOverview extends HTMLElement {
     this._config = {
       title: "Security",
       alarm_entity: "alarm_control_panel.alarmo",
-      locks_entity: null,
       windows_entity: null,
       ...config,
     };
@@ -26,13 +25,19 @@ class WineyardsSecurityOverview extends HTMLElement {
     const cfg = this._config;
     const hass = this._hass;
 
-    const alarm = cfg.alarm_entity ? hass.states[cfg.alarm_entity] : undefined;
-    const locks = cfg.locks_entity ? hass.states[cfg.locks_entity] : undefined;
+    const alarm = hass.states[cfg.alarm_entity];
     const windows = cfg.windows_entity ? hass.states[cfg.windows_entity] : undefined;
 
     const alarmState = alarm?.state ?? "unknown";
-    const lockState = locks?.state ?? "unknown";
     const windowsState = windows?.state ?? "unknown";
+
+    const isActive = alarmState !== "disarmed";
+
+    const statusColor = isActive ? "#4caf50" : "#f44336";
+    const statusText = isActive ? "Aktiv" : "Inaktiv";
+
+    const actionText = isActive ? "Deaktivieren" : "Aktivieren";
+    const actionIcon = isActive ? "mdi:shield-off" : "mdi:shield-check";
 
     this.shadowRoot.innerHTML = `
       <ha-card class="wy-card">
@@ -42,18 +47,20 @@ class WineyardsSecurityOverview extends HTMLElement {
 
           <div class="wy-grid">
 
-            <div class="wy-item">
-              <ha-icon icon="mdi:shield-outline"></ha-icon>
+            <!-- STATUS -->
+            <div class="wy-item status" style="--status-color:${statusColor}">
+              <ha-icon icon="${isActive ? "mdi:shield-lock" : "mdi:shield-off"}"></ha-icon>
               <div class="wy-label">Alarm</div>
-              <div class="wy-state">${alarmState}</div>
+              <div class="wy-state">${statusText}</div>
             </div>
 
-            <div class="wy-item">
-              <ha-icon icon="mdi:lock-outline"></ha-icon>
-              <div class="wy-label">Locks</div>
-              <div class="wy-state">${lockState}</div>
+            <!-- ACTION -->
+            <div class="wy-item action">
+              <ha-icon icon="${actionIcon}"></ha-icon>
+              <div class="wy-label">${actionText}</div>
             </div>
 
+            <!-- WINDOWS -->
             <div class="wy-item">
               <ha-icon icon="mdi:window-closed-variant"></ha-icon>
               <div class="wy-label">Windows</div>
@@ -98,6 +105,7 @@ class WineyardsSecurityOverview extends HTMLElement {
             flex-direction:column;
             align-items:center;
             gap:6px;
+            cursor:pointer;
           }
 
           ha-icon{
@@ -114,11 +122,36 @@ class WineyardsSecurityOverview extends HTMLElement {
 
           .wy-state{
             font-size:16px;
-            font-weight:400;
+            font-weight:500;
+          }
+
+          .status ha-icon,
+          .status .wy-state{
+            color: var(--status-color);
+          }
+
+          .action:hover{
+            opacity:0.8;
           }
         </style>
       </ha-card>
     `;
+
+    // Click Verhalten
+    const actionEl = this.shadowRoot.querySelector(".action");
+    if (actionEl) {
+      actionEl.onclick = () => {
+        if (isActive) {
+          hass.callService("alarm_control_panel", "alarm_disarm", {
+            entity_id: cfg.alarm_entity
+          });
+        } else {
+          hass.callService("alarm_control_panel", "alarm_arm_away", {
+            entity_id: cfg.alarm_entity
+          });
+        }
+      };
+    }
   }
 
   getCardSize() {
@@ -126,11 +159,11 @@ class WineyardsSecurityOverview extends HTMLElement {
   }
 }
 
-customElements.define("wineyards-security-overview-v2", WineyardsSecurityOverview);
+customElements.define("wineyards-security-overview-v3", WineyardsSecurityOverview);
 
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "wineyards-security-overview",
   name: "Wineyards Security Overview",
-  description: "Security overview with Windows instead of Garage",
+  description: "Security overview with dynamic activate/deactivate",
 });
