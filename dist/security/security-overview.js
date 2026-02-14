@@ -1,103 +1,111 @@
 class WineyardsSecurityOverview extends HTMLElement {
   setConfig(config) {
-    this._config = config;
+    this._config = {
+      title: "Security",
+      alarm_entity: "alarm_control_panel.alarmo",
+      locks_entity: null,
+      garage_entity: null,
+      ...config,
+    };
   }
 
   set hass(hass) {
-    const alarm = hass.states["alarm_control_panel.alarmo"];
-    const locks = hass.states["lock.house_locks"];
-    const garage = hass.states["cover.garage_doors"];
+    const cfg = this._config;
 
-    const alarmState = alarm?.state || "unknown";
-    const lockState = locks?.state || "unknown";
-    const garageState = garage?.state || "unknown";
+    const alarm = cfg.alarm_entity ? hass.states[cfg.alarm_entity] : undefined;
+    const locks = cfg.locks_entity ? hass.states[cfg.locks_entity] : undefined;
+    const garage = cfg.garage_entity ? hass.states[cfg.garage_entity] : undefined;
+
+    const alarmState = alarm?.state ?? "unknown";
+    const lockState = locks?.state ?? "unknown";
+    const garageState = garage?.state ?? "unknown";
 
     this.innerHTML = `
-      <ha-card>
-        <div class="container">
+      <ha-card class="wy-sec-card">
+        <div class="wy-sec-wrap">
 
-          <!-- HEADER (volle Breite) -->
-          <div class="header">
-            Security
-          </div>
+          <div class="wy-sec-title">${cfg.title}</div>
 
-          <!-- 3 gleich breite Spalten -->
-          <div class="items">
-
-            <div class="item">
+          <div class="wy-sec-grid">
+            <div class="wy-sec-item">
               <ha-icon icon="mdi:shield-outline"></ha-icon>
-              <div class="label">Alarm</div>
-              <div class="state">${alarmState}</div>
+              <div class="wy-sec-label">Alarm</div>
+              <div class="wy-sec-state">${alarmState}</div>
             </div>
 
-            <div class="item">
+            <div class="wy-sec-item">
               <ha-icon icon="mdi:lock-outline"></ha-icon>
-              <div class="label">Locks</div>
-              <div class="state">${lockState}</div>
+              <div class="wy-sec-label">Locks</div>
+              <div class="wy-sec-state">${lockState}</div>
             </div>
 
-            <div class="item">
+            <div class="wy-sec-item">
               <ha-icon icon="mdi:garage"></ha-icon>
-              <div class="label">Garage</div>
-              <div class="state">${garageState}</div>
+              <div class="wy-sec-label">Garage</div>
+              <div class="wy-sec-state">${garageState}</div>
             </div>
-
           </div>
 
         </div>
 
         <style>
-          ha-card {
-            background: #2c2f36;
-            border-radius: 18px;
-            padding: 20px;
-            color: white;
+          .wy-sec-card{
+            background:#2c2f36;
+            border-radius:18px;
+            padding:18px 20px;
+            color:#fff;
             font-family: var(--primary-font-family);
+            box-shadow:none;
           }
 
-          .container {
-            display: flex;
-            flex-direction: column;
+          .wy-sec-wrap{
+            display:block;
+            width:100%;
           }
 
-          /* Header über volle Breite */
-          .header {
-            width: 100%;
-            font-size: 20px;
-            font-weight: 300;
-            margin-bottom: 20px;
+          .wy-sec-title{
+            width:100%;
+            font-size:20px;
+            font-weight:300;
+            margin-bottom:14px;
+            line-height:1.2;
           }
 
-          /* Exakt 3 x 33,33% */
-          .items {
-            display: grid;
+          .wy-sec-grid{
+            width:100%;
+            display:grid;
             grid-template-columns: repeat(3, 1fr);
-            width: 100%;
-            text-align: center;
+            gap: 0;
+            text-align:center;
           }
 
-          .item {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 6px;
+          .wy-sec-item{
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            justify-content:flex-start;
+            gap:6px;
+            min-width:0;
           }
 
-          ha-icon {
-            width: 28px;
-            height: 28px;
-            opacity: 0.9;
+          .wy-sec-item ha-icon{
+            width:28px;
+            height:28px;
+            opacity:0.95;
           }
 
-          .label {
-            font-size: 14px;
-            opacity: 0.7;
-            font-weight: 300;
+          .wy-sec-label{
+            font-size:13px;
+            font-weight:300;
+            opacity:0.7;
+            line-height:1.1;
           }
 
-          .state {
-            font-size: 16px;
-            font-weight: 400;
+          .wy-sec-state{
+            font-size:16px;
+            font-weight:400;
+            line-height:1.1;
+            text-transform: none;
           }
         </style>
       </ha-card>
@@ -115,5 +123,5 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "wineyards-security-overview",
   name: "Wineyards Security Overview",
-  description: "Security overview with 3 equal columns"
+  description: "Security overview with 3 equal columns",
 });
