@@ -2,16 +2,16 @@
  * Wineyards Security Overview (with Visual Editor)
  *
  * Columns:
- *  1) Alarm Status  (green=aktiv / red=inaktiv / orange=wird aktiviert) -> opens More-Info (via event)
+ *  1) Alarm Status (green=aktiv / red=inaktiv / orange=wird aktiviert) -> DISPLAY ONLY (no click)
  *  2) Aktivieren / Deaktivieren (dynamic)
- *     - Aktivieren: opens Alarm More-Info popup (Zuhause/Abwesend etc.)
- *     - Deaktivieren: calls alarm_disarm
+ *     - Aktivieren: opens Alarm More-Info popup (Zuhause/Abwesend etc.) via event
+ *     - Deaktivieren: calls alarm_disarm directly
  *  3) Windows (optional) -> opens More-Info if entity set
  *
- * Pending logic:
- * - We listen to HA websocket event "call_service".
- * - If alarm_control_panel.alarm_arm_away is called for our entity, we show "Wird aktiviert" (orange)
- *   until the entity state becomes armed_* (or timeout).
+ * Pending logic (for "Abwesend"):
+ * - Listen to HA websocket event "call_service".
+ * - If alarm_control_panel.alarm_arm_away is called for our alarm entity, show "Wird aktiviert" (orange)
+ *   until the entity state becomes armed_* or timeout.
  */
 
 class WineyardsSecurityOverview extends HTMLElement {
@@ -54,7 +54,7 @@ class WineyardsSecurityOverview extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
 
-    // Subscribe once to detect service calls from the popup (arm_away)
+    // Subscribe once to detect service calls triggered by the alarm popup (arm_away)
     if (!this._unsubCallService && hass?.connection?.subscribeEvents) {
       hass.connection
         .subscribeEvents((ev) => this._onHaEvent(ev), "call_service")
@@ -76,7 +76,6 @@ class WineyardsSecurityOverview extends HTMLElement {
   }
 
   _onHaEvent(ev) {
-    // ev.data: { domain, service, service_data }
     const cfg = this._config;
     if (!cfg || !this._hass) return;
     if (!ev?.data) return;
@@ -84,21 +83,20 @@ class WineyardsSecurityOverview extends HTMLElement {
     const { domain, service, service_data } = ev.data;
     if (domain !== "alarm_control_panel") return;
 
-    // Only trigger pending when user chooses "Abwesend" (away) in the popup
+    // Only for "Abwesend" (away)
     if (service !== "alarm_arm_away") return;
 
     const ent = cfg.alarm_entity;
     const ids = service_data?.entity_id;
-    const matches =
-      ids === ent ||
-      (Array.isArray(ids) && ids.includes(ent));
 
+    const matches = ids === ent || (Array.isArray(ids) && ids.includes(ent));
     if (!matches) return;
 
     // Set pending state (orange) until entity becomes armed_* or timeout
     const timeoutMs = Math.max(5, Number(cfg.pending_timeout_s || 30)) * 1000;
     this._pendingArm = true;
     this._pendingUntil = Date.now() + timeoutMs;
+
     this._render();
   }
 
@@ -120,11 +118,11 @@ class WineyardsSecurityOverview extends HTMLElement {
 
     const alarmState = alarm?.state ?? "unknown";
 
+    // Clear pending if timeout or alarm reached armed_* state
     const now = Date.now();
+    const isArmedState = typeof alarmState === "string" && alarmState.startsWith("armed_");
     const timedOut = this._pendingArm && now > (this._pendingUntil || 0);
 
-    // Clear pending if timeout or alarm reached armed_* state
-    const isArmedState = typeof alarmState === "string" && alarmState.startsWith("armed_");
     if (timedOut || isArmedState) {
       this._pendingArm = false;
       this._pendingUntil = 0;
@@ -141,7 +139,11 @@ class WineyardsSecurityOverview extends HTMLElement {
 
     const statusColor = showPending ? "#ff9800" : isActive ? "#4caf50" : "#f44336";
     const statusText = showPending ? "Wird aktiviert" : isActive ? "Aktiv" : "Inaktiv";
-    const statusIcon = showPending ? "mdi:shield-sync-outline" : isActive ? "mdi:shield-lock" : "mdi:shield-off";
+    const statusIcon = showPending
+      ? "mdi:shield-sync-outline"
+      : isActive
+      ? "mdi:shield-lock"
+      : "mdi:shield-off";
 
     const actionText = isActive || showPending ? "Deaktivieren" : "Aktivieren";
     const actionIcon = isActive || showPending ? "mdi:shield-off-outline" : "mdi:shield-check";
@@ -156,8 +158,8 @@ class WineyardsSecurityOverview extends HTMLElement {
 
           <div class="wy-grid">
 
-            <!-- 1) STATUS -->
-            <div class="wy-item wy-status" style="--status-color:${statusColor}" role="button" tabindex="0">
+            <!-- 1) STATUS (DISPLAY ONLY) -->
+            <div class="wy-item wy-status" style="--status-color:${statusColor}">
               <ha-icon icon="${statusIcon}"></ha-icon>
               <div class="wy-label">Alarm</div>
               <div class="wy-state">${statusText}</div>
@@ -212,10 +214,16 @@ class WineyardsSecurityOverview extends HTMLElement {
             flex-direction:column;
             align-items:center;
             gap:6px;
-            cursor:pointer;
             user-select:none;
             min-width:0;
             -webkit-tap-highlight-color: transparent;
+          }
+          .wy-status{
+            cursor:default;
+          }
+          .wy-action,
+          .wy-windows{
+            cursor:pointer;
           }
           ha-icon{
             width:28px;
@@ -250,8 +258,10 @@ class WineyardsSecurityOverview extends HTMLElement {
           .wy-status .wy-state{
             color: var(--status-color);
           }
-          .wy-item:hover{ opacity:0.88; }
-          .wy-item:active{ transform: scale(0.98); }
+          .wy-action:hover,
+          .wy-windows:hover{ opacity:0.88; }
+          .wy-action:active,
+          .wy-windows:active{ transform: scale(0.98); }
           .wy-disabled{
             opacity:0.55;
             cursor:default;
@@ -260,18 +270,14 @@ class WineyardsSecurityOverview extends HTMLElement {
       </ha-card>
     `;
 
-    const statusEl = this.shadowRoot.querySelector(".wy-status");
     const actionEl = this.shadowRoot.querySelector(".wy-action");
     const windowsEl = this.shadowRoot.querySelector(".wy-windows");
-
-    statusEl?.addEventListener("click", () => this._openMoreInfo(cfg.alarm_entity));
 
     actionEl?.addEventListener("click", () => {
       // While pending we allow immediate disarm
       if (isActive || showPending) {
         hass.callService("alarm_control_panel", "alarm_disarm", { entity_id: cfg.alarm_entity });
       } else {
-        // Activate -> open popup
         this._openMoreInfo(cfg.alarm_entity);
       }
     });
@@ -281,7 +287,7 @@ class WineyardsSecurityOverview extends HTMLElement {
       this._openMoreInfo(cfg.windows_entity);
     });
 
-    // Keyboard accessibility
+    // Keyboard accessibility (for buttons only)
     const keyHandler = (el, fn) => {
       if (!el) return;
       el.addEventListener("keydown", (e) => {
@@ -292,7 +298,6 @@ class WineyardsSecurityOverview extends HTMLElement {
       });
     };
 
-    keyHandler(statusEl, () => this._openMoreInfo(cfg.alarm_entity));
     keyHandler(actionEl, () => {
       if (isActive || showPending) {
         hass.callService("alarm_control_panel", "alarm_disarm", { entity_id: cfg.alarm_entity });
@@ -300,6 +305,7 @@ class WineyardsSecurityOverview extends HTMLElement {
         this._openMoreInfo(cfg.alarm_entity);
       }
     });
+
     keyHandler(windowsEl, () => {
       if (!cfg.windows_entity) return;
       this._openMoreInfo(cfg.windows_entity);
@@ -309,13 +315,20 @@ class WineyardsSecurityOverview extends HTMLElement {
   _formatAlarmState(state) {
     if (!state) return "unknown";
     switch (state) {
-      case "disarmed": return "deaktiviert";
-      case "arming": return "wird aktiviert";
-      case "armed_home": return "zuhause";
-      case "armed_away": return "abwesend";
-      case "armed_night": return "nacht";
-      case "armed_vacation": return "urlaub";
-      default: return state;
+      case "disarmed":
+        return "deaktiviert";
+      case "arming":
+        return "wird aktiviert";
+      case "armed_home":
+        return "zuhause";
+      case "armed_away":
+        return "abwesend";
+      case "armed_night":
+        return "nacht";
+      case "armed_vacation":
+        return "urlaub";
+      default:
+        return state;
     }
   }
 
@@ -371,185 +384,75 @@ class WineyardsSecurityOverviewEditor extends HTMLElement {
   }
 
   _render() {
-  if (!this.shadowRoot || !this._config || !this._hass) return;
+    if (!this._hass || !this._config) return;
 
-  const cfg = this._config;
-  const hass = this._hass;
+    const alarmEntities = Object.keys(this._hass.states)
+      .filter((e) => e.startsWith("alarm_control_panel."))
+      .sort();
 
-  const alarm = cfg.alarm_entity ? hass.states[cfg.alarm_entity] : undefined;
-  const windows = cfg.windows_entity ? hass.states[cfg.windows_entity] : undefined;
+    const binarySensors = Object.keys(this._hass.states)
+      .filter((e) => e.startsWith("binary_sensor."))
+      .sort();
 
-  const alarmState = alarm?.state ?? "unknown";
+    this.innerHTML = `
+      <div class="wy-editor">
+        <ha-textfield class="wy-input" label="Title" .value="${this._config.title ?? "Security"}"></ha-textfield>
 
-  const now = Date.now();
-  const timedOut = this._pendingArm && now > (this._pendingUntil || 0);
-  const isArmedState = typeof alarmState === "string" && alarmState.startsWith("armed_");
+        <ha-select class="wy-input" label="Alarm entity">
+          ${alarmEntities
+            .map(
+              (e) =>
+                `<mwc-list-item value="${e}" ${this._config.alarm_entity === e ? "selected" : ""}>${e}</mwc-list-item>`
+            )
+            .join("")}
+        </ha-select>
 
-  if (timedOut || isArmedState) {
-    this._pendingArm = false;
-    this._pendingUntil = 0;
-  }
+        <ha-select class="wy-input" label="Windows entity (optional)">
+          <mwc-list-item value="" ${!this._config.windows_entity ? "selected" : ""}>(none)</mwc-list-item>
+          ${binarySensors
+            .map(
+              (e) =>
+                `<mwc-list-item value="${e}" ${this._config.windows_entity === e ? "selected" : ""}>${e}</mwc-list-item>`
+            )
+            .join("")}
+        </ha-select>
 
-  const isInactive =
-    alarmState === "disarmed" ||
-    alarmState === "unknown" ||
-    alarmState === "unavailable";
+        <ha-textfield class="wy-input" label="Windows label" .value="${this._config.windows_label ?? "Windows"}"></ha-textfield>
+        <ha-textfield class="wy-input" label="Pending timeout (seconds)" type="number" .value="${this._config.pending_timeout_s ?? 30}"></ha-textfield>
 
-  const showPending = this._pendingArm && !isArmedState;
-  const isActive = !isInactive && !showPending;
-
-  const statusColor = showPending ? "#ff9800" : isActive ? "#4caf50" : "#f44336";
-  const statusText = showPending ? "Wird aktiviert" : isActive ? "Aktiv" : "Inaktiv";
-  const statusIcon = showPending ? "mdi:shield-sync-outline" : isActive ? "mdi:shield-lock" : "mdi:shield-off";
-
-  const actionText = isActive || showPending ? "Deaktivieren" : "Aktivieren";
-  const actionIcon = isActive || showPending ? "mdi:shield-off-outline" : "mdi:shield-check";
-
-  const windowsLabel = (cfg.windows_label || "Windows").trim() || "Windows";
-  const windowsState = this._formatWindowsState(windows?.state ?? "unknown");
-
-  this.shadowRoot.innerHTML = `
-    <ha-card class="wy-card">
-      <div class="wy-wrap">
-        <div class="wy-title">${this._escapeHtml(cfg.title)}</div>
-
-        <div class="wy-grid">
-
-          <!-- STATUS (NO BUTTON) -->
-          <div class="wy-item wy-status" style="--status-color:${statusColor}">
-            <ha-icon icon="${statusIcon}"></ha-icon>
-            <div class="wy-label">Alarm</div>
-            <div class="wy-state">${statusText}</div>
-          </div>
-
-          <!-- ACTION -->
-          <div class="wy-item wy-action" role="button" tabindex="0">
-            <ha-icon icon="${actionIcon}"></ha-icon>
-            <div class="wy-label">${actionText}</div>
-            <div class="wy-state wy-muted">${this._escapeHtml(this._formatAlarmState(alarmState))}</div>
-          </div>
-
-          <!-- WINDOWS -->
-          <div class="wy-item wy-windows ${cfg.windows_entity ? "" : "wy-disabled"}" role="button" tabindex="0">
-            <ha-icon icon="mdi:window-closed-variant"></ha-icon>
-            <div class="wy-label">${this._escapeHtml(windowsLabel)}</div>
-            <div class="wy-state">${this._escapeHtml(windowsState)}</div>
-          </div>
-
+        <div class="wy-hint">
+          <div><b>Aktivieren</b> öffnet das Alarm-Popup.</div>
+          <div>Wenn im Popup <b>Abwesend</b> gedrückt wird, zeigt die Karte <b>Wird aktiviert</b> (orange), bis der Alarm wirklich scharf ist.</div>
+          <div><b>Deaktivieren</b> führt direkt <code>alarm_disarm</code> aus.</div>
         </div>
       </div>
 
       <style>
-        .wy-card{
-          background: var(--ha-card-background, var(--card-background-color));
-          border-radius: var(--ha-card-border-radius, 12px);
-          padding:18px 20px;
-          color: var(--primary-text-color);
-          font-family: var(--primary-font-family);
-          box-shadow: var(--ha-card-box-shadow, var(--card-box-shadow));
-        }
-
-        .wy-wrap{
-          display:flex;
-          flex-direction:column;
-          width:100%;
-        }
-
-        .wy-title{
-          width:100%;
-          font-size:20px;
-          font-weight:300;
-          margin:0 0 14px 0;
-          line-height:1.2;
-        }
-
-        .wy-grid{
-          display:grid;
-          grid-template-columns: repeat(3, 1fr);
-          width:100%;
-          text-align:center;
-        }
-
-        .wy-item{
-          display:flex;
-          flex-direction:column;
-          align-items:center;
-          gap:6px;
-          user-select:none;
-          min-width:0;
-        }
-
-        /* STATUS IS NOT CLICKABLE */
-        .wy-status{
-          cursor:default;
-        }
-
-        /* ACTION + WINDOWS ARE BUTTONS */
-        .wy-action,
-        .wy-windows{
-          cursor:pointer;
-        }
-
-        ha-icon{
-          width:28px;
-          height:28px;
-          opacity:0.95;
-        }
-
-        .wy-label{
-          font-size:13px;
-          font-weight:300;
-          opacity:0.7;
-        }
-
-        .wy-state{
-          font-size:16px;
-          font-weight:500;
-        }
-
-        .wy-muted{
-          font-size:12px;
-          font-weight:300;
-          opacity:0.6;
-        }
-
-        .wy-status ha-icon,
-        .wy-status .wy-state{
-          color: var(--status-color);
-        }
-
-        .wy-action:hover,
-        .wy-windows:hover{
-          opacity:0.88;
-        }
-
-        .wy-disabled{
-          opacity:0.55;
-          cursor:default;
-        }
+        .wy-editor{ display:grid; gap:14px; }
+        .wy-input{ width:100%; }
+        .wy-hint{ opacity:0.7; font-size:12px; line-height:1.35; }
+        code{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
       </style>
-    </ha-card>
-  `;
+    `;
 
-  const actionEl = this.shadowRoot.querySelector(".wy-action");
-  const windowsEl = this.shadowRoot.querySelector(".wy-windows");
+    const titleField = this.querySelector('ha-textfield[label="Title"]');
+    const alarmSelect = this.querySelector('ha-select[label="Alarm entity"]');
+    const windowsSelect = this.querySelector('ha-select[label="Windows entity (optional)"]');
+    const windowsLabelField = this.querySelector('ha-textfield[label="Windows label"]');
+    const timeoutField = this.querySelector('ha-textfield[label="Pending timeout (seconds)"]');
 
-  actionEl?.addEventListener("click", () => {
-    if (isActive || showPending) {
-      hass.callService("alarm_control_panel", "alarm_disarm", { entity_id: cfg.alarm_entity });
-    } else {
-      this._openMoreInfo(cfg.alarm_entity);
-    }
-  });
+    titleField?.addEventListener("change", (ev) => this._update({ title: ev.target.value }));
+    alarmSelect?.addEventListener("selected", (ev) => this._update({ alarm_entity: ev.target.value }));
+    windowsSelect?.addEventListener("selected", (ev) => this._update({ windows_entity: ev.target.value }));
+    windowsLabelField?.addEventListener("change", (ev) => this._update({ windows_label: ev.target.value }));
+    timeoutField?.addEventListener("change", (ev) => {
+      const v = Number(ev.target.value);
+      this._update({ pending_timeout_s: Number.isFinite(v) ? v : 30 });
+    });
+  }
 
-  windowsEl?.addEventListener("click", () => {
-    if (!cfg.windows_entity) return;
-    this._openMoreInfo(cfg.windows_entity);
-  });
-}
-
-
-  _emit() {
+  _update(patch) {
+    this._config = { ...this._config, ...patch };
     this.dispatchEvent(
       new CustomEvent("config-changed", {
         detail: { config: this._config },
