@@ -126,7 +126,7 @@ class WineyardsSecurityOverview extends HTMLElement {
   }
 }
 
-customElements.define("wineyards-security-overview", WineyardsSecurityOverview);
+customElements.define("wineyards-security-overview-v2", WineyardsSecurityOverview);
 
 window.customCards = window.customCards || [];
 window.customCards.push({
