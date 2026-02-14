@@ -16,12 +16,12 @@ class WineyardsSecurityOverview extends HTMLElement {
       <ha-card>
         <div class="container">
 
-          <!-- HEADER -->
+          <!-- HEADER (volle Breite) -->
           <div class="header">
             Security
           </div>
 
-          <!-- ITEMS -->
+          <!-- 3 gleich breite Spalten -->
           <div class="items">
 
             <div class="item">
@@ -43,6 +43,7 @@ class WineyardsSecurityOverview extends HTMLElement {
             </div>
 
           </div>
+
         </div>
 
         <style>
@@ -54,20 +55,28 @@ class WineyardsSecurityOverview extends HTMLElement {
             font-family: var(--primary-font-family);
           }
 
+          .container {
+            display: flex;
+            flex-direction: column;
+          }
+
+          /* Header über volle Breite */
           .header {
+            width: 100%;
             font-size: 20px;
             font-weight: 300;
             margin-bottom: 20px;
           }
 
+          /* Exakt 3 x 33,33% */
           .items {
-            display: flex;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            width: 100%;
             text-align: center;
           }
 
           .item {
-            flex: 1;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -106,5 +115,5 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "wineyards-security-overview",
   name: "Wineyards Security Overview",
-  description: "Minimal security overview card"
+  description: "Security overview with 3 equal columns"
 });
