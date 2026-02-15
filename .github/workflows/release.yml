@@ -28,19 +28,27 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Erwartet, dass dein Build dist/wineyards.js erzeugt.
-      # Wir kopieren es nach root als wineyards.js, damit HACS es als Asset findet.
-      - name: Prepare artifacts
+      # Erwartet dist/wineyards.js und packt ein ZIP-Release,
+      # damit HACS zuverlässig laden kann.
+      - name: Prepare ZIP artifact
         run: |
           test -f dist/wineyards.js
-          cp dist/wineyards.js wineyards.js
-          if [ -f dist/wineyards.js.map ]; then cp dist/wineyards.js.map wineyards.js.map; fi
+          rm -rf release
+          mkdir -p release
+          cp dist/wineyards.js release/wineyards.js
+          if [ -f dist/wineyards.js.map ]; then cp dist/wineyards.js.map release/wineyards.js.map; fi
 
-      - name: Create GitHub Release (if not exists)
+          # ZIP so bauen, dass wineyards.js im ZIP-ROOT liegt (kein extra Top-Ordner!)
+          cd release
+          zip -r ../ha-wineyards-cards.zip .
+          cd ..
+
+          ls -lah ha-wineyards-cards.zip
+
+      - name: Create GitHub Release (upload ZIP)
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            wineyards.js
-            wineyards.js.map
+            ha-wineyards-cards.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
