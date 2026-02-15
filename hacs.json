@@ -1,6 +1,5 @@
 {
   "name": "Wineyards Cards",
-  "content_in_root": false,
   "render_readme": true,
   "zip_release": true,
   "filename": "dist/wineyards.js"
