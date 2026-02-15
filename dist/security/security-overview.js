@@ -1,17 +1,24 @@
 /**
  * Wineyards Security Overview (with Visual Editor)
  *
- * Columns:
- *  1) Alarm Status (green=aktiv / red=inaktiv / orange=wird aktiviert) -> DISPLAY ONLY (no click)
+ * OLD layout (3 columns) + NEW settings:
+ *  1) Alarm Status (green=aktiv / red=inaktiv / orange=wird aktiviert) -> DISPLAY ONLY
  *  2) Aktivieren / Deaktivieren (dynamic)
- *     - Aktivieren: opens Alarm More-Info popup (Zuhause/Abwesend etc.) via event
- *     - Deaktivieren: calls alarm_disarm directly
- *  3) Windows (optional) -> opens More-Info if entity set
+ *     - Aktivieren: opens Alarm More-Info popup (Zuhause/Abwesend etc.)
+ *     - Deaktivieren: calls alarm_disarm
+ *  3) Doors/Windows (optional group) OR optional single windows entity
+ *     - If doors_windows_entity (group.*) is set: show open count + chips (first 4)
+ *     - Else if windows_entity is set: show its state (quick)
  *
- * Pending logic (for "Abwesend"):
- * - Listen to HA websocket event "call_service".
- * - If alarm_control_panel.alarm_arm_away is called for our alarm entity, show "Wird aktiviert" (orange)
- *   until the entity state becomes armed_* or timeout.
+ * New settings:
+ * - doors_windows_entity (group.*)
+ * - doors_windows_title (default: "Doors / Windows")
+ * - doors_windows_icon (configurable)
+ * - windows_icon (configurable)
+ *
+ * Pending:
+ * - If HA reports alarm state "arming" => pending
+ * - Additionally websocket "call_service": alarm_arm_away for our entity => pending until armed_* or timeout
  */
 
 class WineyardsSecurityOverview extends HTMLElement {
@@ -31,9 +38,17 @@ class WineyardsSecurityOverview extends HTMLElement {
     return {
       title: "Security",
       alarm_entity: "alarm_control_panel.alarmo",
+      pending_timeout_s: 30,
+
+      // Column 3 (fallback quick entity)
       windows_entity: "",
       windows_label: "Windows",
-      pending_timeout_s: 30,
+      windows_icon: "mdi:window-closed-variant",
+
+      // Column 3 (preferred group)
+      doors_windows_entity: "",
+      doors_windows_title: "Doors / Windows",
+      doors_windows_icon: "mdi:door",
     };
   }
 
@@ -41,28 +56,35 @@ class WineyardsSecurityOverview extends HTMLElement {
     if (!config || !config.alarm_entity) {
       throw new Error("alarm_entity is required (e.g. alarm_control_panel.alarmo)");
     }
+
     this._config = {
       title: "Security",
+      alarm_entity: "",
+      pending_timeout_s: 30,
+
       windows_entity: "",
       windows_label: "Windows",
-      pending_timeout_s: 30,
+      windows_icon: "mdi:window-closed-variant",
+
+      doors_windows_entity: "",
+      doors_windows_title: "Doors / Windows",
+      doors_windows_icon: "mdi:door",
+
       ...config,
     };
+
     this._render();
   }
 
   set hass(hass) {
     this._hass = hass;
 
-    // Subscribe once to detect service calls triggered by the alarm popup (arm_away)
+    // subscribe once for pending detection from popup
     if (!this._unsubCallService && hass?.connection?.subscribeEvents) {
       hass.connection
         .subscribeEvents((ev) => this._onHaEvent(ev), "call_service")
         .then((unsub) => (this._unsubCallService = unsub))
-        .catch(() => {
-          // If subscription fails, card still works; pending state just won't be shown.
-          this._unsubCallService = null;
-        });
+        .catch(() => (this._unsubCallService = null));
     }
 
     this._render();
@@ -83,16 +105,14 @@ class WineyardsSecurityOverview extends HTMLElement {
     const { domain, service, service_data } = ev.data;
     if (domain !== "alarm_control_panel") return;
 
-    // Only for "Abwesend" (away)
+    // mark pending for "Abwesend"
     if (service !== "alarm_arm_away") return;
 
     const ent = cfg.alarm_entity;
     const ids = service_data?.entity_id;
-
     const matches = ids === ent || (Array.isArray(ids) && ids.includes(ent));
     if (!matches) return;
 
-    // Set pending state (orange) until entity becomes armed_* or timeout
     const timeoutMs = Math.max(5, Number(cfg.pending_timeout_s || 30)) * 1000;
     this._pendingArm = true;
     this._pendingUntil = Date.now() + timeoutMs;
@@ -107,34 +127,56 @@ class WineyardsSecurityOverview extends HTMLElement {
     this.dispatchEvent(ev);
   }
 
+  _getEntity(id) {
+    if (!id || !this._hass) return undefined;
+    return this._hass.states[id];
+  }
+
+  _isOpenState(stateObj) {
+    const s = stateObj?.state;
+    if (!s) return false;
+    return s === "on" || s === "open" || s === "opening";
+  }
+
+  _getGroupMembers(groupEntityId) {
+    const ent = this._getEntity(groupEntityId);
+    const ids = ent?.attributes?.entity_id;
+    return Array.isArray(ids) ? ids : [];
+  }
+
+  _formatName(entityId) {
+    const ent = this._getEntity(entityId);
+    return ent?.attributes?.friendly_name || entityId;
+  }
+
   _render() {
     if (!this.shadowRoot || !this._config || !this._hass) return;
 
     const cfg = this._config;
     const hass = this._hass;
 
-    const alarm = cfg.alarm_entity ? hass.states[cfg.alarm_entity] : undefined;
-    const windows = cfg.windows_entity ? hass.states[cfg.windows_entity] : undefined;
-
+    const alarm = this._getEntity(cfg.alarm_entity);
     const alarmState = alarm?.state ?? "unknown";
 
-    // Clear pending if timeout or alarm reached armed_* state
+    // pending rules
     const now = Date.now();
     const isArmedState = typeof alarmState === "string" && alarmState.startsWith("armed_");
+    const isArmingState = alarmState === "arming";
     const timedOut = this._pendingArm && now > (this._pendingUntil || 0);
 
     if (timedOut || isArmedState) {
       this._pendingArm = false;
       this._pendingUntil = 0;
     }
+    if (isArmingState) this._pendingArm = true;
+
+    const showPending = this._pendingArm && !isArmedState;
 
     const isInactive =
       alarmState === "disarmed" ||
       alarmState === "unknown" ||
       alarmState === "unavailable";
 
-    // Status display priority: pending -> active -> inactive
-    const showPending = this._pendingArm && !isArmedState;
     const isActive = !isInactive && !showPending;
 
     const statusColor = showPending ? "#ff9800" : isActive ? "#4caf50" : "#f44336";
@@ -148,8 +190,44 @@ class WineyardsSecurityOverview extends HTMLElement {
     const actionText = isActive || showPending ? "Deaktivieren" : "Aktivieren";
     const actionIcon = isActive || showPending ? "mdi:shield-off-outline" : "mdi:shield-check";
 
-    const windowsLabel = (cfg.windows_label || "Windows").trim() || "Windows";
-    const windowsState = this._formatWindowsState(windows?.state ?? "unknown");
+    // Column 3: group preferred, else quick entity
+    const groupId = (cfg.doors_windows_entity || "").trim();
+    const quickId = (cfg.windows_entity || "").trim();
+
+    const col3UsesGroup = !!groupId;
+    const col3Title = col3UsesGroup
+      ? (cfg.doors_windows_title || "Doors / Windows").trim() || "Doors / Windows"
+      : (cfg.windows_label || "Windows").trim() || "Windows";
+
+    const col3Icon = col3UsesGroup
+      ? (cfg.doors_windows_icon || "mdi:door")
+      : (cfg.windows_icon || "mdi:window-closed-variant");
+
+    let col3State = "nicht gesetzt";
+    let openChipsHtml = "";
+
+    if (col3UsesGroup) {
+      const members = this._getGroupMembers(groupId);
+      const openMembers = members
+        .map((id) => ({ id, ent: this._getEntity(id) }))
+        .filter((x) => this._isOpenState(x.ent));
+
+      const openCount = openMembers.length;
+      col3State = openCount === 0 ? "Keine offen" : `${openCount} offen`;
+
+      const openNames = openMembers.slice(0, 4).map((x) => this._escapeHtml(this._formatName(x.id)));
+      if (openNames.length) {
+        openChipsHtml = `<div class="wy-openlist">${openNames
+          .map((n) => `<span class="wy-chip">${n}</span>`)
+          .join("")}</div>`;
+      } else {
+        openChipsHtml = `<div class="wy-openlist wy-muted2"></div>`;
+      }
+    } else if (quickId) {
+      const quickEnt = this._getEntity(quickId);
+      col3State = this._formatQuickState(quickEnt?.state ?? "unknown");
+      openChipsHtml = `<div class="wy-openlist wy-muted2"></div>`;
+    }
 
     this.shadowRoot.innerHTML = `
       <ha-card class="wy-card">
@@ -168,15 +246,16 @@ class WineyardsSecurityOverview extends HTMLElement {
             <!-- 2) ACTION -->
             <div class="wy-item wy-action" role="button" tabindex="0">
               <ha-icon icon="${actionIcon}"></ha-icon>
-              <div class="wy-label">${actionText}</div>
+              <div class="wy-label">${this._escapeHtml(actionText)}</div>
               <div class="wy-state wy-muted">${this._escapeHtml(this._formatAlarmState(alarmState))}</div>
             </div>
 
-            <!-- 3) WINDOWS -->
-            <div class="wy-item wy-windows ${cfg.windows_entity ? "" : "wy-disabled"}" role="button" tabindex="0">
-              <ha-icon icon="mdi:window-closed-variant"></ha-icon>
-              <div class="wy-label">${this._escapeHtml(windowsLabel)}</div>
-              <div class="wy-state">${this._escapeHtml(windowsState)}</div>
+            <!-- 3) DOORS/WINDOWS (group or quick entity) -->
+            <div class="wy-item wy-col3 ${(col3UsesGroup || quickId) ? "" : "wy-disabled"}" role="button" tabindex="0">
+              <ha-icon icon="${this._escapeHtml(col3Icon)}"></ha-icon>
+              <div class="wy-label">${this._escapeHtml(col3Title)}</div>
+              <div class="wy-state">${this._escapeHtml(col3State)}</div>
+              ${openChipsHtml}
             </div>
 
           </div>
@@ -191,11 +270,13 @@ class WineyardsSecurityOverview extends HTMLElement {
             font-family: var(--primary-font-family);
             box-shadow: var(--ha-card-box-shadow, var(--card-box-shadow));
           }
+
           .wy-wrap{
             display:flex;
             flex-direction:column;
             width:100%;
           }
+
           .wy-title{
             width:100%;
             font-size:20px;
@@ -203,12 +284,14 @@ class WineyardsSecurityOverview extends HTMLElement {
             margin:0 0 14px 0;
             line-height:1.2;
           }
+
           .wy-grid{
             display:grid;
             grid-template-columns: repeat(3, 1fr);
             width:100%;
             text-align:center;
           }
+
           .wy-item{
             display:flex;
             flex-direction:column;
@@ -217,19 +300,18 @@ class WineyardsSecurityOverview extends HTMLElement {
             user-select:none;
             min-width:0;
             -webkit-tap-highlight-color: transparent;
+            padding: 2px 4px;
           }
-          .wy-status{
-            cursor:default;
-          }
-          .wy-action,
-          .wy-windows{
-            cursor:pointer;
-          }
+
+          .wy-status{ cursor:default; }
+          .wy-action, .wy-col3{ cursor:pointer; }
+
           ha-icon{
             width:28px;
             height:28px;
             opacity:0.95;
           }
+
           .wy-label{
             font-size:13px;
             font-weight:300;
@@ -240,6 +322,7 @@ class WineyardsSecurityOverview extends HTMLElement {
             text-overflow:ellipsis;
             max-width:100%;
           }
+
           .wy-state{
             font-size:16px;
             font-weight:500;
@@ -249,19 +332,52 @@ class WineyardsSecurityOverview extends HTMLElement {
             text-overflow:ellipsis;
             max-width:100%;
           }
+
           .wy-muted{
             font-size:12px;
             font-weight:300;
             opacity:0.6;
           }
+
+          .wy-muted2{
+            font-size:11px;
+            font-weight:300;
+            opacity:0.55;
+          }
+
           .wy-status ha-icon,
           .wy-status .wy-state{
             color: var(--status-color);
           }
+
+          .wy-openlist{
+            display:flex;
+            flex-wrap:wrap;
+            gap:6px;
+            justify-content:center;
+            margin-top: 2px;
+            max-width: 100%;
+          }
+
+          .wy-chip{
+            font-size: 10px;
+            line-height: 1;
+            padding: 4px 6px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.08);
+            color: var(--primary-text-color);
+            max-width: 100%;
+            overflow:hidden;
+            text-overflow:ellipsis;
+            white-space:nowrap;
+          }
+
           .wy-action:hover,
-          .wy-windows:hover{ opacity:0.88; }
+          .wy-col3:hover{ opacity:0.88; }
+
           .wy-action:active,
-          .wy-windows:active{ transform: scale(0.98); }
+          .wy-col3:active{ transform: scale(0.98); }
+
           .wy-disabled{
             opacity:0.55;
             cursor:default;
@@ -271,10 +387,9 @@ class WineyardsSecurityOverview extends HTMLElement {
     `;
 
     const actionEl = this.shadowRoot.querySelector(".wy-action");
-    const windowsEl = this.shadowRoot.querySelector(".wy-windows");
+    const col3El = this.shadowRoot.querySelector(".wy-col3");
 
     actionEl?.addEventListener("click", () => {
-      // While pending we allow immediate disarm
       if (isActive || showPending) {
         hass.callService("alarm_control_panel", "alarm_disarm", { entity_id: cfg.alarm_entity });
       } else {
@@ -282,12 +397,14 @@ class WineyardsSecurityOverview extends HTMLElement {
       }
     });
 
-    windowsEl?.addEventListener("click", () => {
-      if (!cfg.windows_entity) return;
-      this._openMoreInfo(cfg.windows_entity);
+    // Column 3: open more-info on selected entity (group preferred)
+    col3El?.addEventListener("click", () => {
+      const target = groupId || quickId;
+      if (!target) return;
+      this._openMoreInfo(target);
     });
 
-    // Keyboard accessibility (for buttons only)
+    // Keyboard accessibility for buttons only
     const keyHandler = (el, fn) => {
       if (!el) return;
       el.addEventListener("keydown", (e) => {
@@ -306,9 +423,10 @@ class WineyardsSecurityOverview extends HTMLElement {
       }
     });
 
-    keyHandler(windowsEl, () => {
-      if (!cfg.windows_entity) return;
-      this._openMoreInfo(cfg.windows_entity);
+    keyHandler(col3El, () => {
+      const target = groupId || quickId;
+      if (!target) return;
+      this._openMoreInfo(target);
     });
   }
 
@@ -332,7 +450,7 @@ class WineyardsSecurityOverview extends HTMLElement {
     }
   }
 
-  _formatWindowsState(state) {
+  _formatQuickState(state) {
     if (!state) return "unknown";
     if (state === "on") return "open";
     if (state === "off") return "closed";
@@ -359,32 +477,47 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "wineyards-security-overview",
   name: "Wineyards Security Overview",
-  description: "Security overview with editor + activate popup + pending status + direct disarm",
+  description: "3-column security overview with doors/windows group + icon selection",
 });
 
 /* -----------------------------
- * Lovelace Visual Editor
+ * Lovelace Visual Editor (stable: no rerender on every hass update)
  * ----------------------------- */
 class WineyardsSecurityOverviewEditor extends HTMLElement {
+  constructor() {
+    super();
+    this._rendered = false;
+  }
+
   setConfig(config) {
     this._config = {
       title: "Security",
       alarm_entity: "",
+      pending_timeout_s: 30,
+
       windows_entity: "",
       windows_label: "Windows",
-      pending_timeout_s: 30,
+      windows_icon: "mdi:window-closed-variant",
+
+      doors_windows_entity: "",
+      doors_windows_title: "Doors / Windows",
+      doors_windows_icon: "mdi:door",
+
       ...config,
     };
+
+    this._rendered = false;
     this._render();
   }
 
   set hass(hass) {
     this._hass = hass;
-    this._render();
+    if (!this._rendered) this._render();
   }
 
   _render() {
     if (!this._hass || !this._config) return;
+    if (this._rendered) return;
 
     const alarmEntities = Object.keys(this._hass.states)
       .filter((e) => e.startsWith("alarm_control_panel."))
@@ -394,9 +527,16 @@ class WineyardsSecurityOverviewEditor extends HTMLElement {
       .filter((e) => e.startsWith("binary_sensor."))
       .sort();
 
+    const groupEntities = Object.keys(this._hass.states)
+      .filter((e) => e.startsWith("group."))
+      .sort();
+
+    // We use ha-icon-picker if available; fallback to textfield otherwise.
+    const iconPickerAvailable = !!customElements.get("ha-icon-picker");
+
     this.innerHTML = `
       <div class="wy-editor">
-        <ha-textfield class="wy-input" label="Title" .value="${this._config.title ?? "Security"}"></ha-textfield>
+        <ha-textfield class="wy-input" label="Title" value="${this._esc(this._config.title)}"></ha-textfield>
 
         <ha-select class="wy-input" label="Alarm entity">
           ${alarmEntities
@@ -407,7 +547,31 @@ class WineyardsSecurityOverviewEditor extends HTMLElement {
             .join("")}
         </ha-select>
 
-        <ha-select class="wy-input" label="Windows entity (optional)">
+        <ha-textfield class="wy-input" label="Pending timeout (seconds)" type="number" value="${Number(this._config.pending_timeout_s ?? 30)}"></ha-textfield>
+
+        <div class="wy-sep">Column 3 (Doors / Windows)</div>
+
+        <ha-select class="wy-input" label="Doors/Windows group (preferred)">
+          <mwc-list-item value="" ${!this._config.doors_windows_entity ? "selected" : ""}>(none)</mwc-list-item>
+          ${groupEntities
+            .map(
+              (e) =>
+                `<mwc-list-item value="${e}" ${this._config.doors_windows_entity === e ? "selected" : ""}>${e}</mwc-list-item>`
+            )
+            .join("")}
+        </ha-select>
+
+        <ha-textfield class="wy-input" label="Doors/Windows title" value="${this._esc(this._config.doors_windows_title)}"></ha-textfield>
+
+        ${
+          iconPickerAvailable
+            ? `<ha-icon-picker class="wy-input" label="Doors/Windows icon" value="${this._esc(this._config.doors_windows_icon)}"></ha-icon-picker>`
+            : `<ha-textfield class="wy-input" label="Doors/Windows icon (mdi:...)" value="${this._esc(this._config.doors_windows_icon)}"></ha-textfield>`
+        }
+
+        <div class="wy-sep">Fallback (if no group selected)</div>
+
+        <ha-select class="wy-input" label="Windows entity (quick, optional)">
           <mwc-list-item value="" ${!this._config.windows_entity ? "selected" : ""}>(none)</mwc-list-item>
           ${binarySensors
             .map(
@@ -417,38 +581,72 @@ class WineyardsSecurityOverviewEditor extends HTMLElement {
             .join("")}
         </ha-select>
 
-        <ha-textfield class="wy-input" label="Windows label" .value="${this._config.windows_label ?? "Windows"}"></ha-textfield>
-        <ha-textfield class="wy-input" label="Pending timeout (seconds)" type="number" .value="${this._config.pending_timeout_s ?? 30}"></ha-textfield>
+        <ha-textfield class="wy-input" label="Windows label" value="${this._esc(this._config.windows_label)}"></ha-textfield>
+
+        ${
+          iconPickerAvailable
+            ? `<ha-icon-picker class="wy-input" label="Windows icon" value="${this._esc(this._config.windows_icon)}"></ha-icon-picker>`
+            : `<ha-textfield class="wy-input" label="Windows icon (mdi:...)" value="${this._esc(this._config.windows_icon)}"></ha-textfield>`
+        }
 
         <div class="wy-hint">
-          <div><b>Aktivieren</b> öffnet das Alarm-Popup.</div>
-          <div>Wenn im Popup <b>Abwesend</b> gedrückt wird, zeigt die Karte <b>Wird aktiviert</b> (orange), bis der Alarm wirklich scharf ist.</div>
-          <div><b>Deaktivieren</b> führt direkt <code>alarm_disarm</code> aus.</div>
+          Tipp: Wenn du eine <b>Gruppe</b> auswählst, zeigt die Karte offene Türen/Fenster.
+          Ohne Gruppe nutzt sie optional die einzelne Windows-Entität als schnelle Anzeige.
         </div>
       </div>
 
       <style>
-        .wy-editor{ display:grid; gap:14px; }
+        .wy-editor{ display:grid; gap:16px; }
         .wy-input{ width:100%; }
+        .wy-sep{ opacity:0.7; font-size:12px; margin-top:4px; }
         .wy-hint{ opacity:0.7; font-size:12px; line-height:1.35; }
-        code{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
       </style>
     `;
 
-    const titleField = this.querySelector('ha-textfield[label="Title"]');
-    const alarmSelect = this.querySelector('ha-select[label="Alarm entity"]');
-    const windowsSelect = this.querySelector('ha-select[label="Windows entity (optional)"]');
-    const windowsLabelField = this.querySelector('ha-textfield[label="Windows label"]');
-    const timeoutField = this.querySelector('ha-textfield[label="Pending timeout (seconds)"]');
+    this._attachListeners(iconPickerAvailable);
+    this._rendered = true;
+  }
 
-    titleField?.addEventListener("change", (ev) => this._update({ title: ev.target.value }));
-    alarmSelect?.addEventListener("selected", (ev) => this._update({ alarm_entity: ev.target.value }));
-    windowsSelect?.addEventListener("selected", (ev) => this._update({ windows_entity: ev.target.value }));
-    windowsLabelField?.addEventListener("change", (ev) => this._update({ windows_label: ev.target.value }));
-    timeoutField?.addEventListener("change", (ev) => {
-      const v = Number(ev.target.value);
+  _attachListeners(iconPickerAvailable) {
+    const title = this.querySelector('ha-textfield[label="Title"]');
+    const alarm = this.querySelector('ha-select[label="Alarm entity"]');
+    const timeout = this.querySelector('ha-textfield[label="Pending timeout (seconds)"]');
+
+    const groupSel = this.querySelector('ha-select[label="Doors/Windows group (preferred)"]');
+    const groupTitle = this.querySelector('ha-textfield[label="Doors/Windows title"]');
+
+    const windowsSel = this.querySelector('ha-select[label="Windows entity (quick, optional)"]');
+    const windowsLabel = this.querySelector('ha-textfield[label="Windows label"]');
+
+    // icon pickers (either ha-icon-picker or ha-textfield fallback)
+    const doorsIconEl = iconPickerAvailable
+      ? this.querySelector('ha-icon-picker[label="Doors/Windows icon"]')
+      : this.querySelector('ha-textfield[label="Doors/Windows icon (mdi:...)"]');
+
+    const windowsIconEl = iconPickerAvailable
+      ? this.querySelector('ha-icon-picker[label="Windows icon"]')
+      : this.querySelector('ha-textfield[label="Windows icon (mdi:...)"]');
+
+    title?.addEventListener("change", (e) => this._update({ title: e.target.value }));
+    alarm?.addEventListener("selected", (e) => this._update({ alarm_entity: e.target.value }));
+
+    timeout?.addEventListener("change", (e) => {
+      const v = Number(e.target.value);
       this._update({ pending_timeout_s: Number.isFinite(v) ? v : 30 });
     });
+
+    groupSel?.addEventListener("selected", (e) => this._update({ doors_windows_entity: e.target.value }));
+    groupTitle?.addEventListener("change", (e) => this._update({ doors_windows_title: e.target.value }));
+
+    doorsIconEl?.addEventListener("change", (e) => this._update({ doors_windows_icon: e.target.value }));
+    // some HA builds fire "value-changed" instead of "change"
+    doorsIconEl?.addEventListener("value-changed", (e) => this._update({ doors_windows_icon: e.detail?.value ?? e.target.value }));
+
+    windowsSel?.addEventListener("selected", (e) => this._update({ windows_entity: e.target.value }));
+    windowsLabel?.addEventListener("change", (e) => this._update({ windows_label: e.target.value }));
+
+    windowsIconEl?.addEventListener("change", (e) => this._update({ windows_icon: e.target.value }));
+    windowsIconEl?.addEventListener("value-changed", (e) => this._update({ windows_icon: e.detail?.value ?? e.target.value }));
   }
 
   _update(patch) {
@@ -460,6 +658,15 @@ class WineyardsSecurityOverviewEditor extends HTMLElement {
         composed: true,
       })
     );
+  }
+
+  _esc(s) {
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
   }
 }
 
