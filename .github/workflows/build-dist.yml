@@ -10,6 +10,9 @@ on:
       - "tsconfig.json"
       - "vite.config.ts"
 
+  # ✅ Manual trigger in GitHub UI
+  workflow_dispatch:
+
 permissions:
   contents: write
 
@@ -20,6 +23,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout (full history)
         uses: actions/checkout@v4
@@ -35,7 +39,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # ✅ Avoids "vite: Permission denied" by bypassing node_modules/.bin wrappers
+      # 🔒 Robust build without .bin execution
       - name: Build (vite via node)
         run: node ./node_modules/vite/bin/vite.js build
 
