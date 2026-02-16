@@ -9,26 +9,26 @@ export interface ValueConfig {
   icon?: string;
   min: number;
   max: number;
-  decimals?: number; // optional formatting
+  decimals?: number;
 }
 
 export interface WineyardClimateCardConfig {
   type: string;
 
   title?: string;
-  icon?: string; // top-right
+  icon?: string; // top-right icon
 
-  // Main value (big)
+  // Main (big) value
   main_entity: string;
   main_unit?: string;
   main_decimals?: number;
 
   // Graph
-  graph_entity?: string; // defaults to main_entity if not set
+  graph_entity?: string; // defaults to main_entity
   graph_hours?: number; // default 12
   graph_points?: number; // default 48
 
-  // Bottom (Option A): exactly 2 values
+  // Bottom values (Option A = exactly 2)
   value_1: ValueConfig;
   value_2: ValueConfig;
 }
@@ -38,6 +38,7 @@ export class WineyardClimateCard extends LitElement {
   @property({ attribute: false }) public hass!: HomeAssistant;
   @state() private _config!: WineyardClimateCardConfig;
 
+  // sparkline cache
   @state() private _series: number[] | null = null;
   @state() private _seriesFetchedAt = 0;
   private _fetchInFlight: Promise<void> | null = null;
@@ -88,7 +89,6 @@ export class WineyardClimateCard extends LitElement {
       graph_hours: 12,
       graph_points: 48,
       ...config,
-      // fallback graph_entity to main_entity
       graph_entity: config.graph_entity ?? config.main_entity,
     };
 
@@ -186,12 +186,6 @@ export class WineyardClimateCard extends LitElement {
     return value.toFixed(Math.max(0, Math.min(6, d)));
   }
 
-  // green(120) -> red(0)
-  private _hslGreenToRed(p: number): string {
-    const hue = (1 - p) * 120;
-    return `hsl(${hue} 90% 55%)`;
-  }
-
   private _clamp01(v: number): number {
     return Math.max(0, Math.min(1, v));
   }
@@ -199,6 +193,12 @@ export class WineyardClimateCard extends LitElement {
   private _percent(value: number, min: number, max: number): number {
     if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max) || max === min) return 0;
     return this._clamp01((value - min) / (max - min));
+  }
+
+  // green(120) -> red(0)
+  private _hslGreenToRed(p: number): string {
+    const hue = (1 - p) * 120;
+    return `hsl(${hue} 90% 55%)`;
   }
 
   private _colorFor(value: number, min: number, max: number): string {
@@ -213,7 +213,7 @@ export class WineyardClimateCard extends LitElement {
 
     const w = 560;
     const h = 130;
-    const pad = 10;
+    const pad = 0; // no padding
 
     const min = Math.min(...series);
     const max = Math.max(...series);
@@ -227,9 +227,9 @@ export class WineyardClimateCard extends LitElement {
 
     const dLine = `M ${pts.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" L ")}`;
     const dArea =
-      `M ${pts[0].x.toFixed(1)} ${h - pad}` +
+      `M ${pts[0].x.toFixed(1)} ${h}` +
       ` L ${pts.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" L ")}` +
-      ` L ${pts[pts.length - 1].x.toFixed(1)} ${h - pad} Z`;
+      ` L ${pts[pts.length - 1].x.toFixed(1)} ${h} Z`;
 
     return html`
       <svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
@@ -268,6 +268,12 @@ export class WineyardClimateCard extends LitElement {
     `;
   }
 
+  /**
+   * Dots like screenshot:
+   * - 5 dots
+   * - only ONE dot is "active" (not a progress bar)
+   * - active dot color depends on where the value lies between min/max (green -> red)
+   */
   private _renderDots(value: number | null, min: number, max: number): unknown {
     const dots = 5;
 
@@ -275,25 +281,24 @@ export class WineyardClimateCard extends LitElement {
       return html`
         <div class="dots">
           ${Array.from({ length: dots }).map(
-            () => html`<span class="dot" style="background: var(--disabled-text-color); opacity:.35"></span>`
+            () => html`<span class="dot" style="background: var(--disabled-text-color); opacity:.30"></span>`
           )}
         </div>
       `;
     }
 
     const p = this._percent(value, min, max);
-    // show progress over 5 dots
-    const filled = Math.round(p * (dots - 1)); // 0..4
+    const idx = Math.round(p * (dots - 1)); // 0..4
 
     return html`
       <div class="dots">
         ${Array.from({ length: dots }).map((_, i) => {
-          const active = i <= filled;
+          const active = i === idx;
           const c = this._hslGreenToRed(i / (dots - 1));
           return html`<span
             class="dot"
             style="
-              background:${active ? c : "color-mix(in srgb, var(--primary-text-color) 18%, transparent)"};
+              background:${active ? c : "color-mix(in srgb, var(--primary-text-color) 14%, transparent)"};
               opacity:${active ? "1" : ".55"};
             "
           ></span>`;
@@ -305,26 +310,26 @@ export class WineyardClimateCard extends LitElement {
   private _renderBottomValue(v: ValueConfig): unknown {
     const num = this._num(v.entity);
     const unit = v.unit ?? this._unitFromState(v.entity) ?? "";
+
     const color = num == null ? "var(--secondary-text-color)" : this._colorFor(num, v.min, v.max);
 
     const label = v.label ?? "";
-    const display = num == null ? "—" : this._formatNumber(num, v.decimals);
-    const displayWithUnit = unit ? `${display} ${unit}` : display;
+    const valueText = num == null ? "—" : this._formatNumber(num, v.decimals);
 
     return html`
-      <div class="bottomBlock">
-        <div class="bottomTop">
-          <div class="bottomLabel">
-            ${label}
+      <div class="bottomCell">
+        <div class="bottomLabel">${label}</div>
+
+        <div class="bottomMid">
+          <div class="bottomValueStack">
+            <div class="bottomNumber" style="color:${color}">${valueText}</div>
+            <div class="bottomUnit">${unit}</div>
           </div>
-          ${v.icon ? html`<ha-icon class="bottomIcon" icon="${v.icon}"></ha-icon>` : nothing}
-        </div>
 
-        <div class="bottomValue" style="color:${color}">
-          ${displayWithUnit}
+          <div class="bottomDots">
+            ${this._renderDots(num, v.min, v.max)}
+          </div>
         </div>
-
-        ${this._renderDots(num, v.min, v.max)}
       </div>
     `;
   }
@@ -370,7 +375,6 @@ export class WineyardClimateCard extends LitElement {
       display: block;
     }
 
-    /* Card shell similar to screenshot (soft, rounded, dark) */
     ha-card.cardRoot {
       border-radius: 26px;
       overflow: hidden;
@@ -410,18 +414,22 @@ export class WineyardClimateCard extends LitElement {
       margin: 0 0 12px;
     }
 
+    /* Graph: no padding/margin inside */
     .graphWrap {
       height: 130px;
       width: 100%;
       border-radius: 18px;
       overflow: hidden;
       background: color-mix(in srgb, var(--primary-background-color) 65%, transparent);
+      padding: 0;
+      margin: 0;
     }
 
     .spark {
       width: 100%;
       height: 100%;
       display: block;
+      margin: 0;
     }
 
     .graphPlaceholder {
@@ -435,41 +443,62 @@ export class WineyardClimateCard extends LitElement {
       );
     }
 
+    /* Bottom like screenshot: two columns with center divider */
     .bottomRow {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 14px;
+      gap: 0;
       margin-top: 14px;
     }
 
-    /* Each bottom block resembles the flat area in the screenshot (no hard borders) */
-    .bottomBlock {
-      padding: 10px 2px 0;
+    .bottomRow > .bottomCell:first-child {
+      padding-right: 14px;
+      border-right: 1px solid color-mix(in srgb, var(--primary-text-color) 10%, transparent);
     }
 
-    .bottomTop {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 4px;
+    .bottomRow > .bottomCell:last-child {
+      padding-left: 14px;
+    }
+
+    .bottomCell {
+      padding-top: 4px;
     }
 
     .bottomLabel {
       font-size: 14px;
       opacity: 0.65;
+      margin-bottom: 8px;
     }
 
-    .bottomIcon {
-      opacity: 0.55;
-      --mdc-icon-size: 18px;
+    .bottomMid {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
     }
 
-    .bottomValue {
-      font-size: 22px;
+    .bottomValueStack {
+      display: grid;
+      gap: 4px;
+    }
+
+    .bottomNumber {
+      font-size: 24px;
       font-weight: 600;
       letter-spacing: -0.01em;
-      margin-bottom: 8px;
+      line-height: 1;
+    }
+
+    .bottomUnit {
+      font-size: 12px;
+      opacity: 0.6;
+      line-height: 1;
+    }
+
+    .bottomDots {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
     }
 
     .dots {
@@ -493,9 +522,10 @@ declare global {
   }
 }
 
+// Registry entry
 (window as any).customCards = (window as any).customCards || [];
 (window as any).customCards.push({
   type: "wineyard-climate-card",
   name: "Wineyard Climate Card",
-  description: "Climate-style card with sparkline and two min/max color-scored values (green→red).",
+  description: "Climate card with sparkline (no padding) and two min/max dot-scored values (green→red).",
 });
