@@ -1,6 +1,7 @@
 import { registerCustomCard } from "../../shared/picker";
 
 const TYPE = "wineyard-tile-button";
+const CARD_TYPE = `custom:${TYPE}`;
 
 class WineyardTileButton extends HTMLElement {
   constructor() {
@@ -14,7 +15,7 @@ class WineyardTileButton extends HTMLElement {
 
   static getStubConfig() {
     return {
-      type: TYPE,
+      type: CARD_TYPE,
       entity: "",
       icon: "mdi:lightbulb",
       title: "Kitchen Lights",
