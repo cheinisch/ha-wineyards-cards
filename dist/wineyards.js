@@ -4,8 +4,8 @@ var p = (u, n, t) => M(u, typeof n != "symbol" ? n + "" : n, t);
 function D(u) {
   window.customCards = window.customCards || [], window.customCards.some((n) => n.type === u.type) || window.customCards.push(u);
 }
-const g = "wineyard-tile-button";
-class O extends HTMLElement {
+const g = "wineyard-tile-button", O = `custom:${g}`;
+class P extends HTMLElement {
   constructor() {
     super(), this.attachShadow({ mode: "open" });
   }
@@ -14,7 +14,7 @@ class O extends HTMLElement {
   }
   static getStubConfig() {
     return {
-      type: g,
+      type: O,
       entity: "",
       icon: "mdi:lightbulb",
       title: "Kitchen Lights",
@@ -53,20 +53,20 @@ class O extends HTMLElement {
     `;
   }
 }
-customElements.get(g) || customElements.define(g, O);
+customElements.get(g) || customElements.define(g, P);
 D({
   type: g,
   name: "Wineyard Tile Button (2x2)",
   description: "2x2 tile button with icon, title and subtitle.",
   preview: !0
 });
-const P = "wineyard-tile-button";
-class R extends HTMLElement {
+const R = "wineyard-tile-button";
+class N extends HTMLElement {
   constructor() {
     super(), this.attachShadow({ mode: "open" });
   }
   setConfig(n) {
-    this._config = n || {}, this._config.type = P, this.render();
+    this._config = n || {}, this._config.type = R, this.render();
   }
   render() {
     this.shadowRoot && (this.shadowRoot.innerHTML = `
@@ -76,9 +76,9 @@ class R extends HTMLElement {
     `);
   }
 }
-customElements.get("wineyard-tile-button-editor") || customElements.define("wineyard-tile-button-editor", R);
-const v = "wineyards-security-overview", N = "wineyards-security-overview-editor";
-class G extends HTMLElement {
+customElements.get("wineyard-tile-button-editor") || customElements.define("wineyard-tile-button-editor", N);
+const v = "wineyards-security-overview", G = "wineyards-security-overview-editor";
+class I extends HTMLElement {
   constructor() {
     super();
     p(this, "_hass");
@@ -89,7 +89,7 @@ class G extends HTMLElement {
     this.attachShadow({ mode: "open" });
   }
   static getConfigElement() {
-    return document.createElement(N);
+    return document.createElement(G);
   }
   // Picker-stabil: ohne custom:
   static getStubConfig() {
@@ -195,7 +195,7 @@ class G extends HTMLElement {
     if (!this.shadowRoot || !this._config || !this._hass) return;
     const t = this._config, e = this._getEntity(t.alarm_entity), i = (e == null ? void 0 : e.state) ?? "unknown", o = Date.now(), r = typeof i == "string" && i.startsWith("armed_"), d = i === "arming";
     (this._pendingArm && o > (this._pendingUntil || 0) || r) && (this._pendingArm = !1, this._pendingUntil = 0), d && (this._pendingArm = !0);
-    const h = this._pendingArm && !r, l = !(i === "disarmed" || i === "unknown" || i === "unavailable") && !h, s = h ? "#ff9800" : l ? "#4caf50" : "#f44336", a = h ? "Wird aktiviert" : l ? "Aktiv" : "Inaktiv", L = h ? "mdi:shield-sync-outline" : l ? "mdi:shield-lock" : "mdi:shield-off", T = l || h ? "Deaktivieren" : "Aktivieren", C = l || h ? "mdi:shield-off-outline" : "mdi:shield-check", b = (t.doors_windows_entity || "").trim(), m = (t.windows_entity || "").trim(), f = !!b, $ = f ? (t.doors_windows_title || "Doors / Windows").trim() || "Doors / Windows" : (t.windows_label || "Windows").trim() || "Windows", z = f ? t.doors_windows_icon || "mdi:door" : t.windows_icon || "mdi:window-closed-variant";
+    const h = this._pendingArm && !r, l = !(i === "disarmed" || i === "unknown" || i === "unavailable") && !h, s = h ? "#ff9800" : l ? "#4caf50" : "#f44336", a = h ? "Wird aktiviert" : l ? "Aktiv" : "Inaktiv", T = h ? "mdi:shield-sync-outline" : l ? "mdi:shield-lock" : "mdi:shield-off", L = l || h ? "Deaktivieren" : "Aktivieren", C = l || h ? "mdi:shield-off-outline" : "mdi:shield-check", b = (t.doors_windows_entity || "").trim(), m = (t.windows_entity || "").trim(), f = !!b, $ = f ? (t.doors_windows_title || "Doors / Windows").trim() || "Doors / Windows" : (t.windows_label || "Windows").trim() || "Windows", z = f ? t.doors_windows_icon || "mdi:door" : t.windows_icon || "mdi:window-closed-variant";
     let x = "nicht gesetzt", S = "";
     if (f) {
       const E = this._getGroupMembers(b).map((y) => ({ id: y, ent: this._getEntity(y) })).filter((y) => this._isOpenState(y.ent));
@@ -213,14 +213,14 @@ class G extends HTMLElement {
 
           <div class="wy-grid">
             <div class="wy-item wy-status" style="--status-color:${s}">
-              <ha-icon icon="${L}"></ha-icon>
+              <ha-icon icon="${T}"></ha-icon>
               <div class="wy-label">Alarm</div>
               <div class="wy-state">${a}</div>
             </div>
 
             <div class="wy-item wy-action" role="button" tabindex="0">
               <ha-icon icon="${C}"></ha-icon>
-              <div class="wy-label">${this._escapeHtml(T)}</div>
+              <div class="wy-label">${this._escapeHtml(L)}</div>
               <div class="wy-state wy-muted">${this._escapeHtml(this._formatAlarmState(i))}</div>
             </div>
 
@@ -274,7 +274,7 @@ class G extends HTMLElement {
     return 2;
   }
 }
-customElements.get(v) || customElements.define(v, G);
+customElements.get(v) || customElements.define(v, I);
 D({
   type: v,
   name: "Wineyards Security Overview",
@@ -282,7 +282,7 @@ D({
   preview: !0
 });
 const A = "wineyards-security-overview";
-class I extends HTMLElement {
+class Y extends HTMLElement {
   constructor() {
     super();
     p(this, "_hass");
@@ -410,5 +410,5 @@ class I extends HTMLElement {
     );
   }
 }
-customElements.get("wineyards-security-overview-editor") || customElements.define("wineyards-security-overview-editor", I);
+customElements.get("wineyards-security-overview-editor") || customElements.define("wineyards-security-overview-editor", Y);
 console.info("[Wineyards] cards bundle loaded");
