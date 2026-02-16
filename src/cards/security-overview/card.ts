@@ -1,11 +1,17 @@
 import { registerCustomCard } from "../../shared/picker";
+// Wichtig: Editor importieren, damit customElement registriert wird
+import "./editor";
 
 const TYPE = "wineyards-security-overview";
+const CARD_TYPE = `custom:${TYPE}`;
 const EDITOR = "wineyards-security-overview-editor";
 
-type Config = {
+export type WineyardsSecurityOverviewConfig = {
+  type: string;
+
   title?: string;
-  alarm_entity: string;
+
+  alarm_entity?: string;
   pending_timeout_s?: number;
 
   doors_windows_entity?: string;
@@ -19,7 +25,7 @@ type Config = {
 
 class WineyardsSecurityOverview extends HTMLElement {
   private _hass: any;
-  private _config!: Config;
+  private _config!: WineyardsSecurityOverviewConfig;
 
   private _unsubCallService: null | (() => void) = null;
   private _pendingArm = false;
@@ -34,10 +40,9 @@ class WineyardsSecurityOverview extends HTMLElement {
     return document.createElement(EDITOR);
   }
 
-  // Picker-stabil: ohne custom:
-  static getStubConfig() {
+  static getStubConfig(): WineyardsSecurityOverviewConfig {
     return {
-      type: TYPE,
+      type: CARD_TYPE,
       title: "Security",
       alarm_entity: "",
       pending_timeout_s: 30,
@@ -52,11 +57,12 @@ class WineyardsSecurityOverview extends HTMLElement {
     };
   }
 
-  setConfig(config: Config) {
+  setConfig(config: WineyardsSecurityOverviewConfig) {
     if (!config) throw new Error("Invalid config");
-    if (!config.alarm_entity) throw new Error("alarm_entity is required");
 
     this._config = {
+      type: CARD_TYPE,
+
       title: "Security",
       alarm_entity: "",
       pending_timeout_s: 30,
@@ -71,6 +77,9 @@ class WineyardsSecurityOverview extends HTMLElement {
 
       ...config,
     };
+
+    // Falls jemand "type: wineyards-security-overview" einträgt, korrigieren
+    if (this._config.type === TYPE) this._config.type = CARD_TYPE;
 
     this._render();
   }
@@ -95,6 +104,10 @@ class WineyardsSecurityOverview extends HTMLElement {
     this._unsubCallService = null;
   }
 
+  getCardSize() {
+    return 2;
+  }
+
   private _onHaEvent(ev: any) {
     const cfg = this._config;
     if (!cfg || !this._hass) return;
@@ -104,7 +117,9 @@ class WineyardsSecurityOverview extends HTMLElement {
     if (domain !== "alarm_control_panel") return;
     if (service !== "alarm_arm_away") return;
 
-    const ent = cfg.alarm_entity;
+    const ent = (cfg.alarm_entity || "").trim();
+    if (!ent) return;
+
     const ids = service_data?.entity_id;
     const matches = ids === ent || (Array.isArray(ids) && ids.includes(ent));
     if (!matches) return;
@@ -122,7 +137,7 @@ class WineyardsSecurityOverview extends HTMLElement {
     this.dispatchEvent(ev);
   }
 
-  private _getEntity(id: string) {
+  private _getEntity(id?: string) {
     if (!id || !this._hass) return undefined;
     return this._hass.states[id];
   }
@@ -157,6 +172,10 @@ class WineyardsSecurityOverview extends HTMLElement {
         return "nacht";
       case "armed_vacation":
         return "urlaub";
+      case "triggered":
+        return "ausgelöst";
+      case "unavailable":
+        return "unavailable";
       default:
         return state || "unknown";
     }
@@ -182,8 +201,10 @@ class WineyardsSecurityOverview extends HTMLElement {
     if (!this.shadowRoot || !this._config || !this._hass) return;
 
     const cfg = this._config;
-    const alarm = this._getEntity(cfg.alarm_entity);
-    const alarmState: string = alarm?.state ?? "unknown";
+
+    const alarmId = (cfg.alarm_entity || "").trim();
+    const alarm = this._getEntity(alarmId);
+    const alarmState: string = alarm?.state ?? (alarmId ? "unknown" : "not_set");
 
     const now = Date.now();
     const isArmedState = typeof alarmState === "string" && alarmState.startsWith("armed_");
@@ -199,7 +220,10 @@ class WineyardsSecurityOverview extends HTMLElement {
     const showPending = this._pendingArm && !isArmedState;
 
     const isInactive =
-      alarmState === "disarmed" || alarmState === "unknown" || alarmState === "unavailable";
+      alarmState === "disarmed" ||
+      alarmState === "unknown" ||
+      alarmState === "unavailable" ||
+      alarmState === "not_set";
 
     const isActive = !isInactive && !showPending;
 
@@ -248,19 +272,27 @@ class WineyardsSecurityOverview extends HTMLElement {
       chipsHtml = `<div class="wy-openlist wy-muted2"></div>`;
     }
 
+    const needsSetup = !alarmId;
+
     this.shadowRoot.innerHTML = `
       <ha-card class="wy-card">
         <div class="wy-wrap">
           <div class="wy-title">${this._escapeHtml(cfg.title)}</div>
 
+          ${
+            needsSetup
+              ? `<div class="wy-setup">Bitte im Editor eine Alarm-Entität auswählen (alarm_control_panel).</div>`
+              : ""
+          }
+
           <div class="wy-grid">
             <div class="wy-item wy-status" style="--status-color:${statusColor}">
               <ha-icon icon="${statusIcon}"></ha-icon>
               <div class="wy-label">Alarm</div>
-              <div class="wy-state">${statusText}</div>
+              <div class="wy-state">${this._escapeHtml(statusText)}</div>
             </div>
 
-            <div class="wy-item wy-action" role="button" tabindex="0">
+            <div class="wy-item wy-action ${needsSetup ? "wy-disabled" : ""}" role="button" tabindex="0">
               <ha-icon icon="${actionIcon}"></ha-icon>
               <div class="wy-label">${this._escapeHtml(actionText)}</div>
               <div class="wy-state wy-muted">${this._escapeHtml(this._formatAlarmState(alarmState))}</div>
@@ -286,6 +318,15 @@ class WineyardsSecurityOverview extends HTMLElement {
           }
           .wy-wrap{ display:flex; flex-direction:column; width:100%; }
           .wy-title{ width:100%; font-size:20px; font-weight:300; margin:0 0 14px 0; line-height:1.2; }
+          .wy-setup{
+            margin: 0 0 12px 0;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.06);
+            font-size: 12px;
+            font-weight: 300;
+            opacity: 0.9;
+          }
           .wy-grid{ display:grid; grid-template-columns: repeat(3, 1fr); width:100%; text-align:center; }
           .wy-item{ display:flex; flex-direction:column; align-items:center; gap:6px; user-select:none; min-width:0; -webkit-tap-highlight-color: transparent; padding: 2px 4px; }
           .wy-status{ cursor:default; }
@@ -300,7 +341,7 @@ class WineyardsSecurityOverview extends HTMLElement {
           .wy-chip{ font-size: 10px; line-height: 1; padding: 4px 6px; border-radius: 999px; background: rgba(255,255,255,0.08); color: var(--primary-text-color); max-width: 100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
           .wy-action:hover, .wy-col3:hover{ opacity:0.88; }
           .wy-action:active, .wy-col3:active{ transform: scale(0.98); }
-          .wy-disabled{ opacity:0.55; cursor:default; }
+          .wy-disabled{ opacity:0.55; cursor:default; pointer-events:none; }
         </style>
       </ha-card>
     `;
@@ -310,10 +351,15 @@ class WineyardsSecurityOverview extends HTMLElement {
 
     actionEl?.addEventListener("click", () => {
       if (!this._hass) return;
+      if (!alarmId) return;
+
+      // Verhalten:
+      // - Wenn aktiv/pending: disarm
+      // - Wenn inaktiv: more-info (damit Nutzer Mode auswählen kann)
       if (isActive || showPending) {
-        this._hass.callService("alarm_control_panel", "alarm_disarm", { entity_id: cfg.alarm_entity });
+        this._hass.callService("alarm_control_panel", "alarm_disarm", { entity_id: alarmId });
       } else {
-        this._openMoreInfo(cfg.alarm_entity);
+        this._openMoreInfo(alarmId);
       }
     });
 
@@ -322,10 +368,6 @@ class WineyardsSecurityOverview extends HTMLElement {
       if (!target) return;
       this._openMoreInfo(target);
     });
-  }
-
-  getCardSize() {
-    return 2;
   }
 }
 
